@@ -1,7 +1,8 @@
 # GeniRover: Autonomous Navigation & Obstacle-Avoidance Differential-Drive Mobile Robot
 
 <div align="center">
-  <img src="./assets/geni_rover_photo.png" width="375" />
+  <img src="./assets/rover_1.jpg" height="300" style="margin-right:16px;" />
+  <img src="./assets/rover_2.jpg" height="300" />
   <p>GeniRover</p>
 </div>
 
