@@ -98,8 +98,7 @@ source install/setup.bash
 
 ## References
 
-- Nav2: https://docs.ros.org/en/humble/Tutorials/Navigation2
+- Nav2: https://github.com/ros-navigation/navigation2
 - slam_toolbox: https://github.com/SteveMacenski/slam_toolbox
 - robot_localization: https://github.com/cra-ros-pkg/robot_localization
 - OrbbecSDK_ROS2: https://github.com/orbbec/OrbbecSDK_ROS2
-- Wheeltec LiDAR: https://github.com/wheeltec/lslidar_ros
