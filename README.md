@@ -12,7 +12,7 @@ A four-wheel differential-drive mobile robot for autonomous SLAM mapping, locali
 | 2D LiDAR | Wheeltec LiDAR |
 | RGB-D Camera | Orbbec Gemini 336L |
 | IMU | YaboSmart 9-axis IMU |
-| Embedded Host | NVIDIA Jetson AGX Orin (Ubuntu 22.04, ROS2 Humble in Docker) |
+| Embedded Host | NVIDIA Jetson AGX Orin (Ubuntu 22.04, ROS2 Humble) |
 
 ## System Pipeline
 
@@ -21,6 +21,7 @@ A four-wheel differential-drive mobile robot for autonomous SLAM mapping, locali
      │                                │
      ▼                                ▼
 SLAM Toolbox                  Madgwick Filter
+(online mapping)              (orientation)
      │                                │
      ▼                                ▼
   /map                           /imu/data
@@ -28,7 +29,7 @@ SLAM Toolbox                  Madgwick Filter
      └────────────┬───────────────────┘
                   ▼
          robot_localization EKF
-      (fuse wheel odom + IMU yaw)
+      (fuse wheel odom vx + IMU yaw)
                   │
                   ▼
          /odometry/filtered
@@ -36,7 +37,7 @@ SLAM Toolbox                  Madgwick Filter
                   │
                   ▼
               Nav2 Stack
-   (AMCL + Navfn planner + DWB controller
+   (AMCL + Global Planner + DWB controller
     + costmap obstacle/inflation layers)
                   │
                   ▼
@@ -44,7 +45,7 @@ SLAM Toolbox                  Madgwick Filter
                   │
                   ▼
             diff_odom_node
-     (dual-channel CAN motor control
+     (dual‑channel CAN motor control
       + wheel odometry from RPM feedback)
                   │
                   ▼
