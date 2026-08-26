@@ -1,0 +1,20 @@
+four_wheels_controller:
+  ros__parameters:
+    # 电机与机械参数
+    gear_ratio: 5.2          # 减速比
+    left_dir: -1             # 左轮方向系数
+    right_dir: 1             # 右轮方向系数
+    acceleration: 255        # 加减速斜率
+    can_id: 0x1801E600       # CAN 发送 ID
+    wheel_base: 0.512        # 轮距 (m)
+    wheel_radius: 0.1        # 车轮半径 (m)
+
+    # CAN 设备参数
+    can_device_type: 4       # VCI_USBCAN2
+    can_device_index: 0
+    can_channel_front: 0     # 前轮通道
+    can_channel_rear: 1      # 后轮通道
+    can_baudrate_timing0: 0x00
+    can_baudrate_timing1: 0x1C
+    can_acc_code: 0x80000008
+    can_acc_mask: 0xFFFFFFFF

@@ -1,0 +1,26 @@
+# VSCode索引、工作区
+.vscode/
+*.vc.db
+
+# 模型权重、压缩包、媒体文件
+*.pth
+*.pt
+*.zip
+*.tar
+*.gz
+*.bz2
+*.mp4
+*.mov
+*.avi
+*.bin
+
+# ROS工作空间编译输出
+build/
+devel/
+install/
+log/
+
+# Python缓存
+__pycache__/
+*.pyc
+*.so

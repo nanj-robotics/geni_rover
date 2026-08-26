@@ -1,0 +1,52 @@
+slam_toolbox:
+  ros__parameters:
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # ========== 坐标框架（已适配你的 base_link 结构） ==========
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_footprint          # ← 关键修改：从 base_footprint 改为 base_link
+    scan_topic: /scan
+    mode: mapping
+
+    # ========== 地图话题 ==========
+    map_topic: /map
+    use_known_poses: false
+    
+    # ========== 地图参数 ==========
+    map_update_interval: 5.0       # 地图更新间隔（秒），越小更新越快但 CPU 负载高
+    max_laser_range: 20.0          # 激光最大有效范围（米），根据你的雷达型号调整
+    minimum_time_interval: 0.2     # 最小时间间隔（秒），避免处理过密的数据
+    resolution: 0.05               # 地图分辨率（米/像素），0.05 适合室内，0.10 适合大场景
+    transform_timeout: 0.2         # TF 查询超时（秒）
+    transform_tolerance: 0.2       # TF 容忍延迟（秒）
+    tf_buffer_duration: 60.0       # TF 缓存时长（秒）
+    stack_size_to_use: 40000000    # 堆栈大小（字节）
+
+    # ========== 回环检测 ==========
+    use_scan_matching: true        # 启用扫描匹配
+    use_scan_barycenter: true      # 使用扫描重心
+    minimum_travel_distance: 0.5   # 最小移动距离触发扫描匹配（米）
+    minimum_travel_heading: 0.5    # 最小旋转角度触发扫描匹配（弧度）
+    scan_buffer_size: 10           # 扫描缓冲区大小
+    scan_buffer_max_scan_distance: 10.0
+    link_match_minimum_response_fine: 0.1
+    do_loop_closing: true          # 启用回环检测
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # ========== 相关性搜索 ==========
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # ========== 调试 ==========
+    debug_logging: false
+    enable_interactive_mode: true
