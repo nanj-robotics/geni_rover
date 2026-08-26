@@ -11,7 +11,7 @@ A four-wheel differential-drive mobile robot for autonomous SLAM mapping, locali
 | Motor Controller | USB-CAN II (dual-channel: front & rear axles) |
 | 2D LiDAR | Wheeltec LiDAR |
 | RGB-D Camera | Orbbec Gemini 336L |
-| IMU | YaboSmart 9-axis IMU |
+| IMU | Yahboom 9-axis IMU |
 | Embedded Host | NVIDIA Jetson AGX Orin (Ubuntu 22.04, ROS2 Humble) |
 
 ## System Pipeline
@@ -60,8 +60,8 @@ geni_rover/
 ├── car_motor_control/      # Motor driver node (USB-CAN II, diff kinematics, wheel odometry),
 │                           # EKF config, combined bringup launch
 ├── car_navigation/         # SLAM Toolbox config & launch, Nav2 params & bringup, pre-built maps
-├── imu_ros2_device/        # YaboSmart IMU driver (accel/gyro/mag/baro/euler publisher)
-├── lslidar_driver/         # Wheeltec LiDAR driver (C++)
+├── imu_ros2_device/        # Yahboom IMU driver
+├── lslidar_driver/         # Wheeltec LiDAR driver
 ├── lslidar_msgs/           # Custom LiDAR ROS2 messages
 └── wheeltec_udev.sh        # udev rules for stable USB device symlinks
 ```
