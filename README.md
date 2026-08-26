@@ -1,8 +1,8 @@
-# Geni-Rover: Autonomous Navigation & Obstacle-Avoidance Differential-Drive Mobile Robot
+# Geni Rover: Autonomous Navigation & Obstacle-Avoidance Differential-Drive Mobile Robot
 
 <div align="center">
   <img src="./assets/geni_rover_photo.png" width="375" />
-  <p>Geni‑Rover</p>
+  <p>Geni Rover</p>
 </div>
 
 A four-wheel differential-drive mobile robot for autonomous SLAM mapping, localization, path planning and real-time obstacle avoidance. Perception uses a 2D LiDAR and an RGB-D camera for environment sensing, an IMU for attitude estimation, and CAN-controlled hub motors for motion. Wheel odometry is fused with IMU via an EKF for robust state estimation. Developed on a laptop and deployed on an NVIDIA Jetson AGX Orin.
@@ -11,7 +11,7 @@ A four-wheel differential-drive mobile robot for autonomous SLAM mapping, locali
 
 | Component | Details |
 |---|---|
-| Robot Platform | Geni-Rover four-wheel differential-drive robot |
+| Robot Platform | Geni Rover four-wheel differential-drive robot |
 | Hub Motors | CAN-controlled in-wheel hub motors, gear ratio 5.2:1 |
 | Motor Controller | USB-CAN II (dual-channel: front & rear axles) |
 | 2D LiDAR | Wheeltec LiDAR |
