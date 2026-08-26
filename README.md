@@ -98,7 +98,6 @@ source install/setup.bash
 ```
 
 ## References
-
 - Nav2: https://github.com/ros-navigation/navigation2
 - slam_toolbox: https://github.com/SteveMacenski/slam_toolbox
 - robot_localization: https://github.com/cra-ros-pkg/robot_localization
