@@ -90,7 +90,7 @@ geni_rover/
 
 ```bash
 mkdir -p ~/geni_rover_ws/src && cd ~/geni_rover_ws/src
-git clone https://gitee.com/nanj-robotics/geni_rover.git
+git clone https://github.com/nanj-robotics/geni_rover.git
 cd ~/geni_rover_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
