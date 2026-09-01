@@ -31,7 +31,7 @@ SLAM / AMCL            Madgwick Filter              nvblox
      │                        ▼                        │
      │                   /imu/data                     │
      │                        │                        │
-RTK GNSS ──→ navsat ──→ Global EKF                     │
+RTK GNSS ──> navsat ──> Global EKF                     │
 (outdoor)    transform   (map→odom,                    │
              node        outdoor only)                 │
      │              │                                  │
