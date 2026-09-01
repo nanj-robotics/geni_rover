@@ -29,7 +29,7 @@ SLAM / AMCL            Madgwick Filter              nvblox
 (map→odom, indoor)     (orientation)           (3D voxel map →
      │                        │                  ESDF 2D slice)
      │                        ▼                        │
-     │                   /imu/data                      │
+     │                   /imu/data                     │
      │                        │                        │
 RTK GNSS ──→ navsat ──→ Global EKF                     │
 (outdoor)    transform   (map→odom,                    │
