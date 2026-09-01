@@ -81,7 +81,6 @@ geni_rover/
 - **Depth camera & nvblox**: Orbbec Gemini 336L feeds color + aligned depth to nvblox (dynamic 3D mapping → ESDF slice), detecting low/hanging obstacles invisible to 2D LiDAR. Auto-starts after localization converges.
 - **RTK outdoor mode**: outdoor:=true switches to RTK-GPS localization (no pre-built map, rolling costmap). Dual-antenna true-north heading + NTRIP cm-level fix; only RTK-fixed solutions are forwarded to the EKF.
 - **Docker on Jetson**: Full ROS2 stack in Docker. USB devices via --device, NVIDIA Container Toolkit for GPU.
-- **Workflow**: ros2 launch navigate_frame bringup.launch.py — slam:=true for mapping, slam:=false map:=... for indoor AMCL, outdoor:=true for RTK outdoor.
 
 ## Build
 ```bash
