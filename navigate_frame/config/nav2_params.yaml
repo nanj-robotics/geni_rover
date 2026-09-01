@@ -1,0 +1,475 @@
+# ============================================================
+# Nav2 导航参数配置
+#
+# 适用：差速驱动机器人（1.0×0.6m）+ LSLIDAR N10 激光 + Orbbec 深度相机
+# 整体架构：AMCL(map→odom) + EKF(odom→base_link) + MPPI局部控制 + Navfn全局规划
+#
+# 定位分工：
+#   - EKF：融合轮速+IMU，发 odom→base_link（连续里程计，短时准）
+#   - AMCL：激光匹配地图，发 map→odom（全局修正）
+# 避障分工：
+#   - local_costmap：激光(obstacle_layer) + nvblox(深度3D障碍) + 膨胀层 → MPPI 实时避障
+#   - global_costmap：静态地图 + 激光 + 膨胀层 → Navfn 全局规划（不放 nvblox，会累积错位）
+#
+# 速度链路：Nav2 controller_server → /cmd_vel_nav → diff_drive_controller → CAN → 电机
+# ============================================================
+
+# ==================== AMCL 定位（map→odom 发布者）====================
+# 粒子滤波激光定位。把当前激光扫描与已建地图匹配，输出 map→odom 修正。
+amcl:
+  ros__parameters:
+    use_sim_time: false          # 全链路一致 false
+    base_frame_id: "base_link"   # 机器人本体帧
+    global_frame_id: "map"       # 全局地图帧
+    odom_frame_id: "odom"        # 里程计帧
+    scan_topic: scan             # 订阅的激光话题
+
+    # ---- 粒子滤波参数 ----
+    min_particles: 500           # 最小粒子数。多=精度高但耗 CPU
+    max_particles: 3000          # 最大粒子数
+    resample_interval: 1         # 每多少次观测重采样一次
+    pf_err: 0.05                 # 粒子滤波误差阈值
+    pf_z: 0.99                   # 粒子滤波概率参数
+
+    # ---- 运动模型噪声（alpha1~5）。值大=粒子扩散快=适应快速运动但易飘 ----
+    # DifferentialMotionModel 下：alpha1/2=旋转噪声, alpha3/4=平移噪声, alpha5=漂移
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"  # 差速运动模型
+
+    # ---- 激光观测模型 ----
+    laser_model_type: "likelihood_field"  # 似然场模型（比 beam 快，精度够）
+    laser_min_range: 0.2            # 激光最小有效距离（米），过滤近距离噪声
+    laser_max_range: 100.0          # 激光最大有效距离
+    max_beams: 60                   # 最多用多少条激光束做匹配
+    laser_likelihood_max_dist: 2.0  # 似然场搜索最大距离（米）
+    beam_skip_distance: 0.5         # 以下为 beam_skip 相关（do_beams_skip=false 时不生效）
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beams_skip: false
+    lambda_short: 0.1
+    sigma_hit: 0.2
+    z_hit: 0.5                      # 以下 z_* 为混合模型各分量权重（likelihood_field 下部分不生效）
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+
+    # ---- 更新触发阈值（移动多少才更新一次定位）----
+    update_min_d: 0.2              # 平移阈值（米）
+    update_min_a: 0.1              # 旋转阈值（弧度）
+
+    # ---- 恢复机制（0=禁用全局重定位）----
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+
+    # ---- TF 与位姿输出 ----
+    tf_broadcast: true             # 发布 map→odom TF（【关键】true=AMCL 独占 map→odom）
+    transform_tolerance: 0.5       # TF 查找容忍时间
+    save_pose_rate: 0.5            # 保存当前位姿到参数的频率（用于重启恢复）
+
+    # ---- 启动初始位姿 ----
+    # 【关键】true=启动自动初始化位姿在 (0,0,0°)，立即发 map→odom。
+    # 解决"AMCL 等手动设定位姿才发 map→odom"的死循环（见 DEBUG_LOG 问题4）。
+    # 若小车每次从固定位置启动，把 x/y/yaw 改成该位置坐标即可自动准确定位。
+    set_initial_pose: true
+    initial_pose.x: 0.0
+    initial_pose.y: 0.0
+    initial_pose.z: 0.0
+    initial_pose.roll: 0.0
+    initial_pose.pitch: 0.0
+    initial_pose.yaw: 0.0
+
+# ==================== BT Navigator（行为树导航器）====================
+# 管理导航行为树（NavigateToPose 等），协调 planner/controller/behavior。
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: "map"
+    robot_base_frame: "base_link"
+    odom_topic: "/odom"
+    bt_loop_duration: 20                  # 行为树循环周期(ms)
+    default_server_timeout: 20            # 默认等待 action server 超时(s)
+    wait_for_service_timeout: 1000        # 等待服务超时(ms)
+    action_server_result_timeout: 900.0   # action 结果超时(s)，长任务设大
+    navigators: ["navigate_to_pose", "navigate_through_poses"]  # 启用的导航器
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator/NavigateToPoseNavigator"        # 单目标点导航
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator/NavigateThroughPosesNavigator"  # 多途经点导航
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
+
+# ==================== Controller Server（局部控制器）====================
+# 执行路径跟随 + 实时避障。本系统用 MPPI 控制器。
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 10.0       # 控制器执行频率(Hz)。影响避障反应速度+CPU。
+                                     # MPPI 吃算力，10Hz 给足计算时间。
+    min_x_velocity_threshold: 0.001  # 低于此线速度视为 0（避免微小抖动）
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    progress_checker_plugins: ["progress_checker"]   # 进度检查插件
+    goal_checker_plugins: ["general_goal_checker"]   # 到达判定插件
+    controller_plugins: ["FollowPath"]               # 局部控制器插件
+    transform_tolerance: 2.0         # TF 容忍时间（放宽，避免 TF 抖动报错）
+    tf_buffer_size: 100              # TF 缓冲大小
+
+    # ---- 进度检查：判定机器人是否在前进（否则触发恢复行为）----
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5   # 在此半径内位移算"没动"
+      movement_time_allowance: 20.0   # 多久没动算卡住(秒)。原地转向慢时需调大，否则误触恢复。
+
+    # ---- 到达判定 ----
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true                  # 到达后保持到达状态
+      xy_goal_tolerance: 1.0         # 位置容差(米)
+      yaw_goal_tolerance: 0.25        # 朝向容差(弧度，0.25≈14°)
+    current_goal_checker: "general_goal_checker"
+
+    # ==================== MPPI 局部规划器 ====================
+    # 模型预测控制：每周期仿真 batch_size 条候选轨迹，critics 评分，softmax 选最优。
+    # 优势：主动绕障（RPP 只追踪路径无避障）；不会像 DWB 崩成 "0 valid trajectories"。
+    # 适用：大 footprint 室内差速机器人。详细参数说明见 MPPI 官方 README。
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+
+      # ---- 预测时序 ----
+      time_steps: 30              # 预测步数。预测时长 = time_steps × model_dt。
+                                   # 预测距离 = 时长 × vx_max。要 ≤ 局部costmap半径(2.5m)。
+      model_dt: 0.1               # 单步时长。【必须】= 1/controller_frequency = 1/10=0.1
+      iteration_count: 1          # 每周期优化迭代次数。多=更优但更慢。
+      prune_distance: 2.5         # 全局路径裁剪距离(米)，超出部分不跟踪
+
+      # ---- 采样 ----
+      batch_size: 800            # 候选轨迹数。多=更优但更吃 GPU/CPU。
+                                   # 官方默认 2000，Jetson 降到 1000 平衡算力。卡顿降到 500。
+      vx_std: 0.25                # 线速度采样标准差。约为速度范围的 1/3。速度变了要同步调。
+      wz_std: 0.25                 # 角速度采样标准差
+      temperature: 0.5            # softmax 温度。小=更激进选最优；大=更平滑探索。
+      gamma: 0.015                # 控制平滑系数，抑制速度跳变
+
+      # ---- 速度限制 ----
+      vx_max: 0.2                 # 最大线速度。要 ≤ diff_drive_controller 的硬件限速。
+      vx_min: -0.1                # 最小线速度(后退)。负值允许后退。
+                                   # 后退太大会导致掉头带位移，保持小幅。
+      wz_max: 1.5                 # 最大角速度
+      motion_model: "DiffDrive"   # 【关键】运动模型：DiffDrive=差速 / Omni=全向 / Ackermann=阿克曼
+      transform_tolerance: 0.1
+      visualize: false            # 发布 /trajectories 可视化（调试用，常开吃算力）
+      retry_attempt_limit: 1      # 软失败重试次数（防极端情况无解）
+
+      # ---- 评分器（critics）。顺序一般不影响，权重决定行为倾向 ----
+      # CostCritic：直接读 costmap 代价（含 nvblox 层的矮障碍），配置简单，
+      #             不像 ObstaclesCritic 要求 inflation_radius≥外接圆。
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+
+      ConstraintCritic:           # 运动学约束（速度/加速度超限惩罚）
+        cost_weight: 4.0
+      GoalCritic:                 # 驱向目标点
+        cost_weight: 5.0
+        threshold_to_consider: 1.4   # 离目标小于此距离才开始考虑
+      GoalAngleCritic:            # 到达目标朝向
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+      PreferForwardCritic:        # 偏好前进（惩罚后退/横移）。加大可抑制掉头带位移
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+      CostCritic:                 # 【核心避障】基于 costmap 代价
+        cost_weight: 8.5         # 避障权重。嫌擦墙→加大；嫌胆小绕远→减小。
+        critical_cost: 1000.0     # 碰到膨胀带的惩罚（越大越怕擦墙）
+        consider_footprint: true  # 【大footprint必须开】检查整个多边形而非只中心点
+        collision_cost: 1000000.0 # 真正碰撞的惩罚（致命，几乎禁止）
+        near_goal_distance: 1.0   # 接近目标时放宽避障以顺利到达
+      PathAlignCritic:            # 对齐全局路径
+        cost_weight: 3.0         # 权重大=贴路径；小=允许偏离绕障
+        max_path_occupancy_ratio: 0.05  # 路径占用超过此比例则禁用此critic（让避障接管）
+        trajectory_point_step: 3       # 每隔几个轨迹点评分一次（降算力）
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+      PathFollowCritic:           # 沿路径前进
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      PathAngleCritic:            # 路径角度对齐（防止反向走）
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        forward_preference: true  # 偏好正向
+
+# ==================== 局部代价地图（local_costmap）====================
+# rolling window，跟随机器人。MPPI 在此做实时避障。
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      update_frequency: 8.0        # 代价图更新频率(Hz)。高=反应快但耗 CPU。
+      publish_frequency: 4.0       # 发布频率(Hz)
+      global_frame: "odom"         # 局部代价图在 odom 帧（连续，短时准）
+      robot_base_frame: "base_link"
+      transform_tolerance: 1.0
+      rolling_window: true         # 【关键】滚动窗口，跟着机器人走
+      width: 8                     # 宽度(米)。半径=2.5m，要 > MPPI 预测距离(1.0m)
+      height: 8
+      resolution: 0.05             # 分辨率(米/格)
+      # 机器人 footprint（多边形顶点，相对 base_link）。决定碰撞检测形状。
+      # 本车实际 1.0×0.7m，配置用 1.0×0.6m（略小，留余量）。
+      footprint: "[[-0.85, -0.55], [-0.85, 0.55], [0.85, 0.55], [0.85, -0.55]]"
+      footprint_padding: 0.01      # footprint 外扩(米)，额外安全余量
+      # 层顺序：先障碍层(标记)，再 nvblox(标记3D障碍)，最后膨胀(基于障碍扩展)
+      plugins: ["obstacle_layer", "nvblox_layer", "inflation_layer"]
+
+      # ---- 障碍层（2D 激光实时障碍）----
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          sensor_model_type: "ray"     # ray=射线模型(标记+清除)
+          max_obstacle_height: 2.0     # 障碍最大高度(2D激光不用)
+          clearing: true               # 射线清除(标记free)
+          marking: true                # 标记障碍
+          raytrace_max_range: 10.0      # 清除射线最远距离
+          obstacle_max_range: 8.0      # 标记障碍最远距离
+          inf_is_valid: false          # inf 距离值是否合法
+
+      # ---- nvblox 3D 避障层 ----
+      # 消费 nvblox 的 ESDF 切片，标记激光扫不到的障碍（矮物/悬空物）。
+      # 仅 local 用（不放 global，会累积错位形成阴影）。
+      nvblox_layer:
+        plugin: "nvblox::nav2::NvbloxCostmapLayer"
+        enabled: true
+        nvblox_map_slice_topic: "/nvblox_node/static_map_slice"  # nvblox 切片话题
+        max_obstacle_distance: 3.0     # 接收障碍的最大距离
+        inflation_distance: 0.05       # nvblox 障碍二次膨胀
+        convert_to_binary_costmap: true  # 二值化（只区分致命/空闲）
+        max_cost_value: 254            # 障碍代价上限
+
+      # ---- 膨胀层 ----
+      # 障碍物向外膨胀，产生代价梯度。影响：路径离障碍多远、MPPI 减速带宽度。
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: true
+        cost_scaling_factor: 2.0       # 代价衰减速度。大=衰减快(陡峭窄带)；小=衰减慢(平缓宽带)
+        inflation_radius: 1.5          # 膨胀半径(米)。要 ≥ footprint 内切圆(0.3)。
+                                       # 大=胆小离障碍远；小=胆大贴障碍。提速后建议≥0.5。
+      always_send_full_costmap: true   # 每次发布完整代价图（调试方便）
+
+# ==================== 全局代价地图（global_costmap）====================
+# 全局规划器(Navfn)在此规划路径。覆盖整张已建地图。
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+      update_frequency: 3.0        # 更新频率(全局不需太高)
+      publish_frequency: 1.0
+      global_frame: "map"          # 全局代价图在 map 帧
+      robot_base_frame: "base_link"
+      transform_tolerance: 1.0
+      rolling_window: false        # 室内:非滚动,覆盖整张地图(从 /map 获取尺寸). 室外由 navigation.launch.py 的 RewrittenYaml 改为 true
+      width: 20                    # rolling_window=true 时的窗口边长(m). 室内非 rolling 时被忽略(用地图尺寸), 故两边兼容
+      height: 20
+      resolution: 0.05
+      footprint: "[[-0.85, -0.55], [-0.85, 0.55], [0.85, 0.55], [0.85, -0.55]]"
+      footprint_padding: 0.01
+      # 层：静态地图 + 激光 + 膨胀。【不放 nvblox】（累积错位会形成阴影，见 DEBUG_LOG 问题9）
+      plugins: ["static_layer", "obstacle_layer",  "inflation_layer"]
+
+      # ---- 静态层（已建好的占用栅格地图）----
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        enabled: true
+        map_topic: "/map"              # 地图话题（map_server 发布）
+        subscribe_to_updates: true     # 订阅地图更新
+        # false：地图 unknown(灰色) 像素当 free，不渲染成黑色。
+        # 本地图 60% 是建图时未扫描的 unknown，true 会渲染成大片黑色阴影阻塞规划。
+        track_unknown_space: false
+        lethal_cost_threshold: 100     # 占用阈值(地图值≥100视为障碍)
+
+      # ---- 障碍层（2D 激光实时障碍）----
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          sensor_model_type: "ray"
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          raytrace_max_range: 15.0      # 全局视野大，射线范围可长
+          obstacle_max_range: 10.0
+          inf_is_valid: false
+          observation_persistence: 0.0 # 障碍保留时长(0=随传感器消失)
+
+      # ---- nvblox 层【已注释禁用】----
+      # 全局不放 nvblox 的原因：
+      #   1. nvblox 在 map 帧建图，global 也在 map 帧，map→odom 漂移时 nvblox 障碍
+      #      在 global 上形成"位置偏移的影子"（障碍膨胀轮廓阴影，位于小车与障碍之间）
+      #   2. global 应基于完整已建地图(static_layer)规划，不依赖相机有限视野
+      #   3. local_costmap 用 nvblox 做实时局部避障即可
+      nvblox_layer:
+        plugin: "nvblox::nav2::NvbloxCostmapLayer"
+        enabled: true
+        nvblox_map_slice_topic: "/nvblox_node/static_map_slice"
+        max_obstacle_distance: 5.0
+        inflation_distance: 0.1
+        convert_to_binary_costmap: true
+        max_cost_value: 254
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 2.0
+        inflation_radius: 1.5
+      always_send_full_costmap: true
+
+# ==================== Planner Server（全局规划器）====================
+# 在 global_costmap 上规划从起点到目标的路径。
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    expected_planner_frequency: 5.0    # 期望规划频率(Hz)。全局规划不需太高。
+    transform_tolerance: 2.0
+    tf_buffer_size: 100
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"  # Navfn 波传播规划器
+      tolerance: 0.25                    # 路径终点容差(米)
+      use_astar: false                   # false=用 Dijkstra；true=用 A*
+      allow_unknown: true                # 允许穿越 unknown 区域（本地图 unknown 多，必须 true）
+
+# ==================== Smoother Server（路径平滑）====================
+# 对规划出的路径做平滑（可选，本系统未重度使用）。
+smoother_server:
+  ros__parameters:
+    use_sim_time: false
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000                # 最大迭代次数
+      do_refinement: true          # 是否精修
+
+# ==================== Behavior Server（恢复行为）====================
+# 导航卡住时触发的恢复动作：原地转(spin)、后退(backup)、前进(drive_on_heading)、等待(wait)。
+behavior_server:
+  ros__parameters:
+    use_sim_time: false
+    costmap_topic: "local_costmap/costmap_raw"
+    footprint_topic: "local_costmap/published_footprint"
+    cycle_frequency: 10.0          # 恢复行为执行频率(Hz)
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+    spin:
+      plugin: "nav2_behaviors/Spin"        # 原地旋转
+    backup:
+      plugin: "nav2_behaviors/BackUp"      # 后退脱困
+      # 默认 0.15m 太短，室内密集障碍脱困不足。实测加大显著提高成功率。
+      backup_dist: 0.3        # 后退距离(米)
+      backup_speed: 0.1       # 后退速度(米/秒)，配合 diff_drive 限速
+    drive_on_heading:
+      plugin: "nav2_behaviors/DriveOnHeading"  # 前进脱困（与 backup 对称）
+      drive_dist: 0.3
+      drive_speed: 0.1
+    wait:
+      plugin: "nav2_behaviors/Wait"        # 原地等待
+    global_frame: "odom"
+    robot_base_frame: "base_link"
+    transform_tolerance: 1.0
+
+# ==================== Waypoint Follower（途经点跟随）====================
+# navigate_through_poses 多目标导航时使用。
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: false
+    loop_rate: 20                  # 主循环频率(Hz)
+    stop_on_failure: false         # 某点失败是否停止全程
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: true
+      waypoint_pause_duration: 200  # 每个途经点停留时长(ms)
+
+# ==================== Velocity Smoother【历史残留，已弃用】====================
+# 此段参数保留但 navigation.launch.py 已移除 velocity_smoother 节点。
+# 速度链路改为：controller_server(/cmd_vel_nav) 直连 diff_drive_controller。
+# diff_drive_controller 自带限速限加速，无需 velocity_smoother。
+# 如需恢复使用，在 navigation.launch.py 重新加回节点并配置。
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: false
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.1, 0.0, 2.0]      # [vx, vy, wz] 最大速度
+    min_velocity: [-0.1, 0.0, -2.0]
+    max_accel: [2.0, 0.0, 2.0]         # 最大加速度
+    max_decel: [-2.0, 0.0, -2.0]
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]  # 死区（低于此速度视为0）
+    velocity_timeout: 1.0
+
+# ==================== SLAM Toolbox（建图模式，slam:=true 时启用）====================
+# ⚠️ 当前因 LSLIDAR 点数波动(1112/1113) 不可用（见 DEBUG_LOG 问题7）。
+# 参数保留备用，待激光点数稳定后可建图。
+slam_toolbox:
+  ros__parameters:
+    use_sim_time: false
+    solver_plugin: solver_plugins::CeresSolver    # 位姿图优化器
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY   # Ceres 线性求解器
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+    ROS_INFO: true
+    ros_debug: false
+    odom_frame: "odom"
+    map_frame: "map"
+    base_frame: "base_link"
+    scan_topic: "/scan"
+    mode: "mapping"               # mapping=建图 / localization=纯定位
+    debug_logging: false
+    throttle_scans: 1             # 每 N 帧扫描处理一次
+    transform_publish_period: 0.02 # 发布 map→odom TF 周期(s)，0.02=50Hz
+    map_update_interval: 5.0       # 地图更新间隔(s)
+    resolution: 0.05              # 地图分辨率
+    max_laser_range: 20.0         # 激光最大量程
+    minimum_time_interval: 0.5    # 最小处理间隔(s)
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+    enable_interactive_mode: false
+    minimum_travel_distance: 0.3  # 移动多少才新增关键帧(米)
+    minimum_travel_heading: 0.3   # 旋转多少才新增关键帧(弧度)
+
+    # 扫描匹配参数
+    use_scan_matching: true
+    use_scan_barycenter: true
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 10.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 3.0     # 回环搜索最大距离
+    do_loop_closing: true                 # 启用回环检测
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true

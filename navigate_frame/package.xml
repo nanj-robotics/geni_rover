@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>navigate_frame</name>
+  <version>0.1.0</version>
+  <description>Nav2 navigation configuration package for differential drive robot</description>
+  <maintainer email="todo@todo.com">user</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Nav2 navigation stack -->
+  <depend>nav2_bringup</depend>
+  <depend>nav2_common</depend>
+  <depend>nav2_msgs</depend>
+  <depend>nav2_util</depend>
+
+  <!-- Sensor fusion -->
+  <depend>robot_localization</depend>
+
+  <!-- SLAM -->
+  <depend>slam_toolbox</depend>
+
+  <!-- TF and launch -->
+  <depend>tf2_ros</depend>
+  <depend>rclpy</depend>
+
+  <!-- AMCL 收敛守卫节点依赖 -->
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+
+  <!-- Sensor drivers (launch-time dependency) -->
+  <!-- <exec_depend>motor_controller</exec_depend> -->
+  <exec_depend>can_diff_drive_hw_trackervehicle</exec_depend>
+  <exec_depend>lslidar_driver</exec_depend>
+  <exec_depend>imu_ros2_device</exec_depend>
+  <exec_depend>imu_filter_madgwick</exec_depend>
+  <exec_depend>gps_ntrip_py</exec_depend>
+
+  <!-- Visualization -->
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

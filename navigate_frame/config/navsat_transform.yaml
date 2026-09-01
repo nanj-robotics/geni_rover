@@ -1,0 +1,58 @@
+# ============================================================
+# navsat_transform_node 配置 (robot_localization)
+#
+# 职责：把 /gps/fix (WGS84 经纬度) 转成 map 系 Odometry (/odometry/gps)，
+#       喂给全局 EKF (ekf_global_node)。
+#
+# 订阅（话题名见 gps.launch.py 的 remap）：
+#   /gps/fix             (NavSatFix, gps_ntrip_node 发布)
+#   /gps/heading_imu     (Imu, 双天线绝对真北航向 —— remap 到本节点 imu 输入)
+#   /odometry/filtered   (Odometry, 局部 EKF 输出，用于算 datum)
+# 发布：
+#   /odometry/gps        (Odometry, map 系，喂全局 EKF)
+#   /gps/filtered        (NavSatFix, EKF 反算，调试用)
+#
+# 关键决策：
+#   - imu 输入用双天线绝对航向(/gps/heading_imu)，不用 /imu/data(相对陀螺积分)
+#     → GPS 的 ENU 位移能正确旋进 odom/map 系（避免方位错位）
+#   - magnetic_declination=0：双天线已是真北(非磁航向)，无需磁偏
+#   - yaw_offset=1.5708(π/2)：左右侧装基线=-Y，补偿 90° 偏移使航向=车头方向
+#   - wait_for_datum=false：开机位姿即 map 原点（动态锚定）
+# ============================================================
+
+navsat_transform_node:
+  ros__parameters:
+    use_sim_time: false
+
+    frequency: 10.0              # GPS 1Hz，10Hz 是上限（仅重发最新变换），省 CPU
+    #delay: 0.3                   # 启动后等 3s 再算 datum（等局部 EKF 收敛 + GPS 首帧 fix）
+    sensor_timeout: 0.5
+    #transform_timeout: 5.0       # 等待 TF 变换的最大时长。GPS 时间戳可能比系统时间超前
+                                   # （GPS 原子钟 vs 系统 NTP），不设则 navsat 查"未来"TF 失败、静默不发 /odometry/gps
+
+    # —— 航向处理 ——
+    magnetic_declination_radians: 0.0   # 双天线已是真北，无需磁偏
+    # 修改前（前后安装，基线=-X，反方向）：yaw_offset=π=3.14159（±180°补偿）
+    # 修改后（左右侧装，基线=-Y，垂直于车头）：
+    #   IMU 航向 = 车头方向 - π/2（基线偏右 90°），navsat 不做 TF 变换直接读 IMU 航向，
+    #   加 π/2 补偿 → 修正后航向 = 车头实际方向。
+    #   值与 gps.launch.py 的 base_link→gps_link TF yaw（-1.5708）同步，补偿量一致。
+    #yaw_offset: -1.5708
+    yaw_offset: 0.0
+    use_odometry_yaw: false             # 用 imu 通道(双天线绝对航向)，不用里程计 yaw
+
+    # —— 高程 ——
+    zero_altitude: true                 # 2D 机器人，忽略 GPS 高程
+
+    # —— 坐标变换广播（调试用绝对系，不影响核心 /odometry/gps 输出）——
+    broadcast_utm_transform: false      # 不广播 utm→odom TF（全局 EKF 发 map→odom，不重复）
+    broadcast_cartesian_transform: false # 关闭：Humble 版 use_local_cartesian 有 MGRS 崩溃 bug
+    use_local_cartesian: false          # 关闭：Humble 的 GeographicLib MGRS 转换崩溃。
+                                         # 用标准 UTM 投影替代（成熟稳定）。UTM 在同一分带内
+                                         # 数十公里范围精度足够，室内/园区不会跨带。
+
+    # —— datum 锚定（决策：启动点即原点）——
+    wait_for_datum: false               # 动态锚定：首帧 GPS + 当前位姿自动算 datum = map 原点
+    # datum 不设（wait_for_datum=false 时忽略）
+
+    publish_filtered_gps: true          # 发 /gps/filtered（EKF 状态反算 NavSatFix，调试对比）

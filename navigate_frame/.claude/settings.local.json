@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(echo \"=== 集成计划文档里 nvblox dynamic / 第三步相关章节 ===\" *)",
+      "Read(//workspace/src/OrbbecSDK_ROS2/docs/**)",
+      "Read(//workspace/src/isaac_ros_nvblox/nvblox_ros/src/lib/**)",
+      "Read(//workspace/install/**)",
+      "Bash(xargs cat)",
+      "Read(//workspace/**)",
+      "Bash(colcon build *)",
+      "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('/workspace/src/navigate_frame/config/nvblox_params.yaml'\\)\\); print\\('✅ nvblox_params.yaml 语法正确'\\)\")",
+      "Bash(grep -nA1 \"nvblox_layer:\\\\|obstacle_layer:\\\\|static_layer:\\\\|inflation_layer:\" /workspace/src/navigate_frame/config/nav2_params.yaml)",
+      "Bash(python3 -c ' *)",
+      "Bash(rm -rf /workspace/build/navigate_frame /workspace/install/navigate_frame && echo \"已删除旧产物\")",
+      "Bash(ROS_DOMAIN_ID=42 ps aux)",
+      "Bash(ROS_DOMAIN_ID=42 ros2 topic list)",
+      "Bash(ROS_DOMAIN_ID=42 ros2 param list /amcl_convergence_gate)",
+      "Bash(ROS_DOMAIN_ID=42 ros2 topic info /gps/fix_rtk)",
+      "Bash(ROS_DOMAIN_ID=42 ros2 topic info /gps/fix)",
+      "Bash(ROS_DOMAIN_ID=42 ros2 topic info /gps/heading_status)",
+      "Bash(ROS_DOMAIN_ID=42 ros2 topic info /odometry/gps)",
+      "Bash(ROS_DOMAIN_ID=42 ros2 topic info /odometry/gps_mapframe)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 3 ros2 topic echo /gps/fix_rtk --once)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(grep -l \"gps_fix_rtk_gate\" ~/.ros/log/*.log 2>/dev/null | head -5; echo \"---\"; grep -rn \"gps_fix_rtk_gate\" ~/.ros/log/launch.log 2>/dev/null | tail -10)",
+      "Read(//root/.ros/log/**)",
+      "Bash(grep -iE \"error|exception|traceback|died\" ~/.ros/log/python3_3*.log 2>/dev/null | head -20)",
+      "Read(//tmp/**)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 4 ros2 topic hz /odometry/gps)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 4 ros2 topic hz /odometry/gps_mapframe)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 5 ros2 topic echo /odometry/gps_mapframe --once)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 5 ros2 topic echo /gps/fix --once)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 5 ros2 topic echo /odometry/gps_mapframe --once --no-arr)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 6 ros2 topic echo /odometry/gps_mapframe --field header --once)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 5 ros2 topic echo /gps/filtered --field header --once)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 6 ros2 topic echo --once /odometry/gps_mapframe --field pose.pose.position)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 6 ros2 topic echo --once /gps/fix_rtk --field status)",
+      "Bash(ROS_DOMAIN_ID=42 timeout 5 ros2 topic echo /odometry/gps --once)",
+      "Bash(awk '{print $2, $3}')"
+    ],
+    "additionalDirectories": [
+      "/workspace/build/navigate_frame"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/liuft/ros2_ws/**)",
+      "Read(//home/liuft/ros2_ws/src/**)",
+      "Bash(find /home/liuft/ros2_ws/src/gps_ntrip_py/.claude -type f 2>/dev/null; echo \"---existing CLAUDE.md?---\"; ls /home/liuft/ros2_ws/src/gps_ntrip_py/CLAUDE.md 2>/dev/null || echo \"none\"; echo \"---build tool---\"; ls /home/liuft/ros2_ws/build/ 2>/dev/null | head; echo \"---ros distro hints---\"; ls /opt/ros/ 2>/dev/null; echo /opt/ros/*)",
+      "Read(//opt/ros/**)",
+      "Bash(timeout 60 python3 -)"
+    ]
+  }
+}

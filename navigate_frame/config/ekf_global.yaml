@@ -1,0 +1,159 @@
+# ============================================================
+# 全局 EKF 配置 (robot_localization) —— 室外 RTK 定位层
+#
+# 职责：融合轮速 + IMU + GPS(/odometry/gps) + 双天线绝对航向，
+#       world_frame=map，publish_tf=true，【独占】发布 map→odom TF。
+#       与局部 ekf_filter_node(发 odom→base_link) 配合得 map→base_link。
+#
+# 仅 outdoor:=true 时由 gps.launch.py 启动；室内模式(outdoor:=false)不启动。
+#
+# 与局部 EKF 的分工（双 EKF 架构）：
+#   - 局部 EKF(odom 帧)：轮速+IMU，均 differential，发 odom→base_link。平滑、用于控制。
+#   - 全局 EKF(map 帧)  ：轮速+IMU + GPS绝对位置 + 双天线绝对航向，发 map→odom。吸收 GPS 跳变、用于定位。
+#   - 控制用局部(平滑)，定位用全局(准确)，map→odom 变换吸收所有跳变。
+#
+# 航向融合策略（互补）：
+#   - imu0 (/imu/data, differential=true)：50Hz 陀螺积分航向变化量，提供高频平滑
+#   - imu1 (/gps/heading_imu, differential=false)：1Hz 双天线绝对真北，锚定 yaw、压制 IMU 漂移
+# ============================================================
+
+ekf_global_node:
+  ros__parameters:
+    use_sim_time: false          # 全链路一致 false
+
+    frequency: 8.0              # 与局部 EKF 一致
+    sensor_timeout: 0.5
+    two_d_mode: true             # 2D 平面机器人
+    transform_time_offset: 0.05  # 同局部（TF 时间戳前移避免下游拒收）
+    transform_timeout: 0.0
+    print_diagnostics: true
+    debug: false
+    permit_static_tf_updates: true
+
+    publish_tf: true             # 【关键】发布 map→odom TF。室外全局 EKF 独占（AMCL/SLAM 不启动）
+    publish_frequency: 30.0
+
+    # 坐标系：world_frame=map → EKF 发 map→odom（局部 EKF world=odom 发 odom→base_link）
+    map_frame: "map"
+    odom_frame: "odom"
+    base_link_frame: "base_link"
+    world_frame: "map"           # 【关键】工作在 map 帧
+
+    # 控制输入（不用，轮速里程计已是连续输入）
+    use_control: false
+    stamped_control: false
+    control_timeout: 0.2
+    control_config: [false, false, false,
+                     false, false, false,
+                     false, false, false,
+                     false, false, false]
+    acceleration_limits: [1.0, 1.0, 1.0,
+                          0.5, 0.5, 0.5,
+                          1.0, 1.0, 1.0,
+                          0.5, 0.5, 0.5]
+    deceleration_limits: [1.0, 1.0, 1.0,
+                          0.5, 0.5, 0.5,
+                          1.0, 1.0, 1.0,
+                          0.5, 0.5, 0.5]
+
+    # ==================== 轮式里程计（odom0，速度直接融合，无 TF 依赖）====================
+    # 用速度直接融合（不读位置、不用 differential），避免需要 map→odom TF 做帧变换。
+    # map→odom 初期可能漂移，若用 differential 位置差分会因 TF 变换不准形成扩散循环。
+    odom0: "/diff_drive_controller/odom"
+    # 15 元素 [X,Y,Z, roll,pitch,yaw, vx,vy,vz, vroll,vpitch,vyaw, ax,ay,az]
+    odom0_config: [false, false, false,     # 位置 (不用，由 GPS odom1 提供绝对锚定)
+                   false, false, false,     # 姿态（由 IMU 和 GPS 航向提供）
+                   true,  true,  false,     # 速度 vx, vy（直接用，帧无关无需 TF）
+                   false, false, false,     # 角速度（由 IMU 提供）
+                   false, false, false]
+    odom0_differential: false    # 非差分：直接读 twist 字段的速度值，无 TF 依赖
+    odom0_queue_size: 10
+    odom0_nodelay: false
+
+    # ==================== IMU（imu0，与局部 EKF 同源，differential）====================
+    # 50Hz 陀螺积分航向（相对，use_mag:false 无绝对参考），differential 取变化量提供高频平滑。
+    imu0: "/imu/data"
+    imu0_config: [false, false, false,
+                  true,  true,  true,       # 姿态 roll, pitch, yaw（变化量）
+                  false, false, false,
+                  true,  true,  true,       # 角速度 wx, wy, wz
+                  false, false, false]
+    imu0_differential: true      # 相对量（同局部）
+    imu0_queue_size: 10
+    imu0_nodelay: false
+    imu0_remove_gravitational_acceleration: true
+
+    # ==================== GPS 位置（odom1，绝对，map 帧）====================
+    # 订阅 gps_frame_relay 中继后的话题（frame_id 已从 odom 改为 map）。
+    # 不能直接用 /odometry/gps（frame_id=odom）→ 全局 EKF 用自己发的 map→odom 变换
+    # → 形成反馈环 → 永远收敛不了。中继改 frame_id 打破反馈环。
+    odom1: "/odometry/gps_mapframe"
+    odom1_config: [true,  true,  false,     # 仅位置 X, Y（绝对）
+                   false, false, false,
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+    odom1_differential: false    # 【关键】绝对融合，非变化量
+    odom1_queue_size: 10
+    odom1_nodelay: false
+
+    # ==================== 双天线绝对航向（imu1，绝对 yaw）====================
+    # 订阅航向质量过滤器输出（仅 RTK fixed heading, status=4），避免低精度浮点航向污染。
+    imu1: "/gps/heading_imu_filtered"
+    imu1_config: [false, false, false,
+                  false, false, true,      # 仅 yaw（绝对真北）
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu1_differential: false     # 【关键】绝对航向，非变化量
+    imu1_queue_size: 10
+    imu1_nodelay: false
+    imu1_remove_gravitational_acceleration: true
+
+    # ==================== 初始状态 ====================
+    initial_state: [0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0]
+
+    # ==================== 过程噪声协方差（15x15 对角）====================
+    # 方案 B（gps_ntrip 已用 GPS 测量时刻打戳 + gps_frame_relay cov_scale 恢复 1.0）后，
+    # GPS 延迟由 robot_localization 延迟测量更新消化（回溯测量时刻 → 前向平滑），
+    # 不再靠"降权"躲避。X/Y 恢复 0.05（与局部 EKF 一致量级），让 GPS 恢复正常
+    # 长时绝对校正能力（压制轮速打滑/轮径误差/IMU 漂移的累积）。
+    process_noise_covariance: [
+      0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.05, 0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.06, 0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.03, 0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.03, 0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.005,0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.025, 0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.025, 0.0,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.04, 0.0,   0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.01,  0.0,   0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.01,  0.0,   0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,  0.02,  0.0,   0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,  0.03,  0.0,   0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,  0.03,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,   0.0,   0.0,  0.0,   0.0,   0.0,   0.0,   0.0,  0.03
+    ]
+
+    initial_estimate_covariance: [
+      0.001, 0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.001, 0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.001, 0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.001, 0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.001, 0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.1,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.001, 0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.001, 0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.001, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0001, 0.0,    0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0001, 0.0,    0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0001, 0.0,    0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0001, 0.0,    0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0001, 0.0,
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,    0.0,    0.0,    0.0,    0.0,    0.0001
+    ]

@@ -1,0 +1,127 @@
+# ============================================================
+# nvblox 参数配置（3D 避障，dynamic 模式）
+#
+# 整体职责：
+#   消费深度相机的 color + aligned_depth，构建 3D 体素地图，
+#   输出 ESDF 2D 切片供 Nav2 costmap 的 nvblox_layer 插件使用。
+#   作用：检测 2D 激光扫不到的障碍（矮物、悬空物、负障碍）。
+#
+# 输入：Orbbec 相机彩色路线
+#   - /camera/color/image_raw + /camera/aligned_depth_to_color/image_raw
+# 位姿来源：EKF 发布的 odom→base_link TF（use_tf_transforms=true）
+# 输出：/nvblox_node/static_map_slice → Nav2 local_costmap 的 nvblox_layer
+#
+# mapping_type=dynamic（基于 Dynablox）：
+#   物体进入 freespace → 识别为动态 → 进带衰减的动态占用层 → 物体移走后自动清除。
+#   相比 static_tsdf + 手调 tsdf_decay，dynamic 模式自动区分静/动态物体，
+#   动态物体（人/推车/门）离开后干净清除，静态物体（墙/家具）稳定保留。
+#
+# 两个前置条件（dynamic 模式固有要求，源码注释强调）：
+#   1. 位姿必须准确——位姿漂移会导致静态物体被误判为动态（错误清除）。
+#      已用 amcl_convergence_gate 等 AMCL 收敛后再启 nvblox，缓解此问题。
+#   2. 物体速度需 > 里程计漂移率，极缓慢移动的物体可能检测不到动态。
+#
+# ⚠️ nvblox 只用在 local_costmap（不放 global_costmap）：
+#   nvblox 累积式建图 + AMCL 持续修正 map→odom = 老体素会错位。
+#   local 的 rolling window + 持续重观测能自我修正；global 会形成永久错位阴影。
+# ============================================================
+
+nvblox_node:
+  ros__parameters:
+    # ================ 基础 ================
+    # 体素大小（米）。越小越精细但越吃算力/内存。
+    # 影响：障碍检测精度、GPU 显存占用。室内 0.05 合理。
+    voxel_size: 0.07
+
+    # 相机数量。单相机设 1。
+    num_cameras: 1
+
+    # 建图模式：dynamic=动态(Dynablox,自动清动态物) / static_tsdf=静态累积 / static_occupancy=占用栅格
+    # 影响：动态障碍清除能力。选 dynamic 解决"人走后障碍残留"。
+    # 注意：dynamic 要求位姿准确，否则静态物被误清（见文件头前置条件）。
+    mapping_type: "dynamic"
+
+    # 位姿来源：true=从 TF 读 map→base_link（本系统用 EKF 发的 odom→base_link + AMCL 的 map→odom）
+    # false 则订阅 pose 话题。本系统走 TF。
+    use_tf_transforms: true
+    use_topic_transforms: false
+
+    # ================ 输入源开关 ================
+    use_depth: true        # 消费深度图（避障必需）
+    use_color: true        # 消费彩色图（彩色 mesh 用，避障非必需但开着一并积分）
+    use_lidar: false       # 不融合激光（激光留给 AMCL/costmap 的 obstacle_layer）
+
+    # ================ 处理频率 ================
+    # 各阶段触发周期（tick_period_ms 为主时钟，下列 *_rate_hz 为各阶段目标频率，<=0 表示不处理）
+    tick_period_ms: 10              # 主循环周期 10ms（100Hz 检查是否有活干）
+    integrate_depth_rate_hz: 40.0   # 深度积分频率：越高地图更新越快，越吃 GPU
+    integrate_color_rate_hz: 5.0    # 彩色积分频率（彩色 mesh 用，低频即可）
+    update_esdf_rate_hz: 10.0       # ESDF 更新频率：影响避障反应速度
+    publish_layer_rate_hz: 5.0      # 发布切片/点云频率（给 costmap 和 RViz）
+
+    # ================ ESDF 输出（2D 切片给 Nav2 costmap）================
+    esdf_mode: "2d"                          # 2d=输出 2D 切片（Nav2 costmap 用）；3d=完整 ESDF
+    publish_esdf_distance_slice: true        # 发布 /nvblox_node/static_map_slice（costmap 的 nvblox_layer 订阅它）
+
+    # ================ 地图清理（机器人周围保留范围）================
+    # 以 map_clearing_frame_id 为圆心，周期清除半径外的体素。
+    # 作用：清除远处错误积分的残留（定位漂移导致的老错位体素）。
+    # 影响：太小→老错位残留清不掉（阴影）；太大→远处有效障碍被清掉（避障视野变窄）。
+    map_clearing_radius_m: 5.0
+    map_clearing_frame_id: "base_link"   # 以机器人为圆心清理
+
+    # ================ 输入 QoS ================
+    # 与相机驱动输出的 QoS 匹配（sensor_data = BEST_EFFORT，适合图像流）。
+    # 不匹配会导致收不到图像数据。
+    input_qos: "SENSOR_DATA"
+
+    # ================ static_mapper（dynamic 模式下负责静态层 + freespace 检测）================
+    # ESDF 切片高度【相对 base_link】（base_link 物理上离地约 0.15m，激光 TF 反推）
+    # 决定哪些高度的障碍进入 2D 代价图：
+    #   min=0.05 → 切到地面以上约 0.2m，留余量避地面噪点
+    #   max=0.6  → 约 ground+0.75m，覆盖车体高度
+    # 注意：base_link 离地高度变了（换车/换安装），min/max 要重调，否则矮物检测不到或地面误报。
+    static_mapper:
+      esdf_slice_height: 0.0          # 切片中心高度（一般 0，配合 min/max 用）
+      esdf_slice_min_height: 0.3     # 切片下界（相对 base_link）。实测 13cm 盒子需 ≤0.05 才稳定检测
+      esdf_slice_max_height: 0.8      # 切片上界（相对 base_link）
+
+      # 深度最远积分距离。影响：障碍检测范围、算力。
+      # 注意：要 < map_clearing_radius_m，且别超相机实际有效深度范围。
+      projective_integrator_max_integration_distance_m: 2.5
+
+      workspace_bounds_type: "height_bounds"   # 工作空间边界：unbounded=不限制；height_bounds=按高度裁剪
+      workspace_bounds_max_height_m: 0.6   # 最大处理高度（高于此的天花板不积分，避免浪费）
+
+      # ---- freespace integrator（dynamic 模式检测动态物体的关键）----
+      # 这些参数决定"多长时间没观测到障碍就判定该区域为空闲(freespace)"，
+      # 是 dynamic 模式区分静/动态的依据。一般用默认值，改大改小影响动态检测灵敏度。
+      max_tsdf_distance_for_occupancy_m: 0.15           # TSDF 距离阈值内才算占用
+      max_unobserved_to_keep_consecutive_occupancy_ms: 200   # 未观测多久后不再维持占用
+      min_duration_since_occupied_for_freespace_ms: 250      # 占用持续多久后才可能转空闲（防误清）
+      min_consecutive_occupancy_duration_for_reset_ms: 1000  # 重置占用状态所需连续观测时长
+      check_neighborhood: true                          # 检查邻居体素（更鲁棒，略吃算力）
+
+    # ================ dynamic_mapper（动态占用层，带衰减，物体移走后自动清除）================
+    # 只有 mapping_type=dynamic 时生效。动态物体（人/车）进这一层，带衰减自动清除。
+    dynamic_mapper:
+      projective_integrator_max_integration_distance_m: 2.5    # 动态层深度最远积分距离
+      projective_integrator_truncation_distance_vox: 4.0       # 截断距离（体素数），影响表面厚度
+
+      # 占用概率阈值（贝叶斯占用网格更新）。
+      # free_region 低=容易判定空闲；occupied 高=确认占用要更强证据。
+      # 影响：动态物体检测的灵敏度 vs 误报率。
+      free_region_occupancy_probability: 0.3
+      occupied_region_occupancy_probability: 0.9
+      unobserved_region_occupancy_probability: 0.35
+      occupied_region_half_width_m: 0.15      # 占用区域半宽（膨胀动态障碍）
+
+      esdf_integrator_min_weight: 5.0         # 进 ESDF 的最小权重（过滤噪声，太低易假障碍）
+      esdf_integrator_max_distance_m: 2.0     # ESDF 计算最大距离（影响膨胀范围）
+
+      # ---- 占用衰减（决定动态物体移走后多久清除）----
+      # free_region_decay_probability：越大，动态物体离开后清除越快（但太快可能误清准静态物）
+      # occupied_region_decay_probability：占用衰减，一般保持低值
+      # 影响：人走开后障碍消失速度。嫌慢调大 free_region_decay_probability；误清静态调小。
+      free_region_decay_probability: 0.7
+      occupied_region_decay_probability: 0.30
