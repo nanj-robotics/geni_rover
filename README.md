@@ -69,8 +69,8 @@ geni_rover/
 ```
 
 ## Environment
-- Ubuntu 22.04 LTS
-- ROS2 Humble (running in Docker on Jetson AGX Orin)
+- Ubuntu 22.04
+- ROS2 Humble
 - Python 3.10
 - NVIDIA Container Toolkit (GPU passthrough, required by nvblox)
 - Isaac ROS nvblox (GPU-accelerated 3D voxel mapping)
