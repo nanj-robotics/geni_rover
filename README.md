@@ -8,7 +8,7 @@
 
 A four-wheel differential-drive mobile robot supporting both indoor SLAM/AMCL navigation and outdoor RTK-GPS navigation. Perception uses a 2D LiDAR for mapping/localization, an RGB-D camera for 3D obstacle avoidance via nvblox, an IMU for attitude estimation, and a dual-antenna RTK GNSS for outdoor global positioning. Wheel odometry is fused with IMU via a dual-EKF architecture (local odom→base_link + global map→odom outdoors). Motion is driven by CAN-controlled hub motors via ros2_control. Developed on a laptop and deployed on an NVIDIA Jetson AGX Orin.
 
-*This project was developed during my internship and released with the permission of my former employer.*
+***This project was developed during my internship and released with the permission of my former employer.***
 
 ## Hardware
 | Component | Details |
